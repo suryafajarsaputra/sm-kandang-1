@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AreaChart,
   Area,
@@ -11,11 +11,13 @@ import {
 } from "recharts";
 
 import {
+  connectToFirebase,
+  disconnectFirebase,
   temperatureData as initialTemperatureData,
-  co2Data as initialCo2Data,
+  coData as initialCoData,
   ammoniaData as initialAmmoniaData,
-  startSimulation,
-  stopSimulation,
+  humidityData as initialHumidityData,
+  fanData as initialFanData,
   last,
   levelFor,
   overallLevelFromLevels,
@@ -25,48 +27,56 @@ import {
 } from "./services.js";
 
 export default function Home() {
-  // state for datasets
   const [temperatureData, setTemperatureData] = useState(initialTemperatureData);
-  const [co2Data, setCo2Data] = useState(initialCo2Data);
+  const [coData, setCoData] = useState(initialCoData);
   const [ammoniaData, setAmmoniaData] = useState(initialAmmoniaData);
+  const [humidityData, setHumidityData] = useState(initialHumidityData);
+  const [fanData, setFanData] = useState(initialFanData);
 
-  // keep sim ref to stop on unmount
-  const simRef = useRef(null);
-
+  // ✅ gunakan service untuk koneksi realtime + historis
   useEffect(() => {
-    // start simulator, update state on each tick
-    simRef.current = startSimulation(
-      ({ temperatureData: t, co2Data: c, ammoniaData: a }) => {
-        setTemperatureData(t);
-        setCo2Data(c);
-        setAmmoniaData(a);
+    connectToFirebase(
+      ({ temperatureData, coData, ammoniaData, humidityData, fanData }) => {
+        const fmt = (arr) =>
+          Array.isArray(arr)
+            ? arr.map((d) => ({
+                ...d,
+                // supaya XAxis menampilkan jam:menit tanpa ubah struktur UI
+                day: new Date(d.time).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              }))
+            : [];
+
+        setTemperatureData(fmt(temperatureData));
+        setCoData(fmt(coData));
+        setAmmoniaData(fmt(ammoniaData));
+        setHumidityData(fmt(humidityData));
+        setFanData(fmt(fanData));
       },
-      { intervalMs: 2500, maxPoints: 24 } // adjust interval if needed
+      { path: "/sensor", hoursBack: 72 }
     );
 
-    return () => {
-      if (simRef.current && typeof simRef.current.stop === "function") {
-        simRef.current.stop();
-      } else {
-        stopSimulation();
-      }
-    };
+    return () => disconnectFirebase();
   }, []);
 
   // compute latest & levels
   const tempLatest = last(temperatureData);
-  const co2Latest = last(co2Data);
+  const coLatest = last(coData);
   const nh3Latest = last(ammoniaData);
+  const humidityLatest = last(humidityData);
+  const fanLatest = last(fanData);
 
   const tempLevel = levelFor("temp", tempLatest);
-  const co2Level = levelFor("co2", co2Latest);
+  const coLevel = levelFor("co", coLatest); // gunakan "co" sesuai services.js
   const nh3Level = levelFor("nh3", nh3Latest);
+  const humidityLevel = levelFor("humidity", humidityLatest);
 
-  const overallLevel = overallLevelFromLevels(tempLevel, co2Level, nh3Level);
+  const overallLevel = overallLevelFromLevels(tempLevel, coLevel, nh3Level);
   const statusText = statusTextFromOverall(overallLevel);
   const circleGradient = getCircleGradient(overallLevel);
 
-  // Custom Tooltip (same as before)
   const CustomTooltip = ({ active, payload, label, color, title }) => {
     if (active && payload && payload.length) {
       return (
@@ -77,10 +87,13 @@ export default function Home() {
             border: "1px solid #E5E7EB",
           }}
         >
-          <p className="text-sm font-semibold" style={{ color: color, marginBottom: "2px" }}>
+          <p
+            className="text-sm font-semibold"
+            style={{ color: color, marginBottom: "2px" }}
+          >
             {label}
           </p>
-          <p className="text-sm" style={{ color: "#047857" }}>
+          <p className="text-sm" style={{ color: color ?? "#047857" }}>
             {title} : <span className="font-semibold">{payload[0].value}</span>
           </p>
         </div>
@@ -100,36 +113,53 @@ export default function Home() {
 
       {/* Air Quality Status */}
       <div className="flex flex-col items-center justify-center my-8">
-        <div
-          className="relative w-48 h-48 flex items-center justify-center rounded-full"
-        >
-          {/* gradient circle (inline style agar dinamis) */}
+        <div className="relative w-48 h-48 flex items-center justify-center rounded-full">
           <div
             className="absolute inset-0 rounded-full animate-pulse-ring"
             style={{
               background: `linear-gradient(135deg, ${circleGradient.from} 0%, ${circleGradient.to} 100%)`,
             }}
           />
-
-          {/* Efek gelombang air (tetap seperti semula) */}
           <div className="absolute bottom-0 overflow-hidden rounded-full w-full h-full">
-            <svg className="absolute bottom-0" viewBox="0 0 200 100" preserveAspectRatio="none">
-              <path className="wave" d="M0 30 Q 75 10, 150 30 T 300 30 T 450 30 T 600 30 V100 H0 Z" fill="rgba(255,255,255,0.5)" />
+            <svg
+              className="absolute bottom-0"
+              viewBox="0 0 200 100"
+              preserveAspectRatio="none"
+            >
+              <path
+                className="wave"
+                d="M0 30 Q 75 10, 150 30 T 300 30 T 450 30 T 600 30 V100 H0 Z"
+                fill="rgba(255,255,255,0.5)"
+              />
             </svg>
-
-            <svg className="absolute bottom-0 opacity-60" viewBox="0 0 200 100" preserveAspectRatio="none">
-              <path className="wave2" d="M0 30 Q 75 10, 150 30 T 300 30 T 450 30 T 600 30 V100 H0 Z" fill="rgba(255,255,255,0.3)" />
+            <svg
+              className="absolute bottom-0 opacity-60"
+              viewBox="0 0 200 100"
+              preserveAspectRatio="none"
+            >
+              <path
+                className="wave2"
+                d="M0 30 Q 75 10, 150 30 T 300 30 T 450 30 T 600 30 V100 H0 Z"
+                fill="rgba(255,255,255,0.3)"
+              />
             </svg>
-
-            <svg className="absolute bottom-0 opacity-40" viewBox="0 0 200 100" preserveAspectRatio="none">
-              <path className="wave3" d="M0 32 Q 75 12, 150 32 T 300 32 T 450 32 T 600 32 V100 H0 Z" fill="rgba(255,255,255,0.2)" />
+            <svg
+              className="absolute bottom-0 opacity-40"
+              viewBox="0 0 200 100"
+              preserveAspectRatio="none"
+            >
+              <path
+                className="wave3"
+                d="M0 32 Q 75 12, 150 32 T 300 32 T 450 32 T 600 32 V100 H0 Z"
+                fill="rgba(255,255,255,0.2)"
+              />
             </svg>
           </div>
-
-          {/* border outer */}
-          <div className="absolute inset-0 rounded-full opacity-30" style={{ border: `10px solid ${circleGradient.border}` }} />
+          <div
+            className="absolute inset-0 rounded-full opacity-30"
+            style={{ border: `10px solid ${circleGradient.border}` }}
+          />
         </div>
-
         <p className="mt-4 text-lg font-medium" style={{ color: circleGradient.text }}>
           {statusText}
         </p>
@@ -144,9 +174,9 @@ export default function Home() {
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm">
-          <p className="text-sm text-gray-600">Karbon dioksida</p>
-          <p className="text-xl font-bold" style={{ color: colorForLevel(co2Level) }}>
-            {co2Latest ?? "-"}ppm
+          <p className="text-sm text-gray-600">Karbon monoksida</p>
+          <p className="text-xl font-bold" style={{ color: colorForLevel(coLevel) }}>
+            {coLatest ?? "-"}ppm
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm">
@@ -156,16 +186,28 @@ export default function Home() {
           </p>
         </div>
         <div className="bg-white p-4 rounded-lg shadow-sm">
+          <p className="text-sm text-gray-600">Kelembapan</p>
+          <p className="text-xl font-bold" style={{ color: colorForLevel(humidityLevel) }}>
+            {humidityLatest ?? "-"}%
+          </p>
+        </div>
+        <div className="bg-white p-4 rounded-lg shadow-sm">
           <p className="text-sm text-gray-600">Status Kipas</p>
-          <p className="text-xl font-bold text-green-700">Aktif</p>
+          <p
+            className={`text-xl font-bold ${fanLatest === 1 ? "text-green-700" : "text-red-600"}`}
+          >
+            {fanLatest === 1 ? "Aktif" : fanLatest === 0 ? "Mati" : "-"}
+          </p>
         </div>
       </div>
 
-      {/* Charts Scrollable Section */}
+      {/* Charts Section */}
       <div className="overflow-x-auto flex space-x-4 pb-4">
-        {/* Suhu */}
+        {/* chart suhu */}
         <div className="bg-white p-4 rounded-lg shadow-sm min-w-[520px]">
-          <p className="text-lg font-semibold text-gray-800 mb-4">Riwayat Temperatur Suhu (°C)</p>
+          <p className="text-lg font-semibold text-gray-800 mb-4">
+            Riwayat Temperatur Suhu (°C)
+          </p>
           <div className="relative h-48">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={temperatureData}>
@@ -175,45 +217,79 @@ export default function Home() {
                     <stop offset="95%" stopColor="#34D399" stopOpacity={0.3} />
                   </linearGradient>
                 </defs>
-
                 <XAxis dataKey="day" tick={{ fill: "#6B7280", fontSize: 12 }} tickLine={false} />
-                <YAxis tick={{ fill: "#6B7280", fontSize: 12 }} tickLine={false} width={30} label={{ value: "°C", angle: -90, position: "insideLeft", fill: "#6B7280", fontSize: 12 }} />
-
+                <YAxis
+                  tick={{ fill: "#6B7280", fontSize: 12 }}
+                  tickLine={false}
+                  width={30}
+                  label={{
+                    value: "°C",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "#6B7280",
+                    fontSize: 12,
+                  }}
+                />
                 <Tooltip content={<CustomTooltip color="#047857" title="Suhu" />} />
-
-                <Area type="monotone" dataKey="value" stroke="#047857" strokeWidth={2} fill="url(#tempColor)" />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#047857"
+                  strokeWidth={2}
+                  fill="url(#tempColor)"
+                  activeDot={{ r: 4 }}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* CO2 */}
+        {/* chart co (karbon monoksida) */}
         <div className="bg-white p-4 rounded-lg shadow-sm min-w-[520px]">
-          <p className="text-lg font-semibold text-gray-800 mb-4">Riwayat Kadar Karbon Dioksida (ppm)</p>
+          <p className="text-lg font-semibold text-gray-800 mb-4">
+            Riwayat Kadar Karbon Monoksida (ppm)
+          </p>
           <div className="relative h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={co2Data}>
+              <AreaChart data={coData}>
                 <defs>
                   <linearGradient id="co2Color" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#60A5FA" stopOpacity={0.8} />
                     <stop offset="95%" stopColor="#60A5FA" stopOpacity={0.3} />
                   </linearGradient>
                 </defs>
-
                 <XAxis dataKey="day" tick={{ fill: "#6B7280", fontSize: 12 }} tickLine={false} />
-                <YAxis tick={{ fill: "#6B7280", fontSize: 12 }} tickLine={false} width={40} label={{ value: "ppm", angle: -90, position: "insideLeft", fill: "#6B7280", fontSize: 12 }} />
-
+                <YAxis
+                  tick={{ fill: "#6B7280", fontSize: 12 }}
+                  tickLine={false}
+                  width={40}
+                  label={{
+                    value: "ppm",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "#6B7280",
+                    fontSize: 12,
+                  }}
+                />
                 <Tooltip content={<CustomTooltip color="#2563EB" title="Kadar" />} />
-
-                <Area type="monotone" dataKey="value" stroke="#2563EB" strokeWidth={2} fill="url(#co2Color)" />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#2563EB"
+                  strokeWidth={2}
+                  fill="url(#co2Color)"
+                  activeDot={{ r: 4 }}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Amonia */}
+        {/* chart amonia */}
         <div className="bg-white p-4 rounded-lg shadow-sm min-w-[520px]">
-          <p className="text-lg font-semibold text-gray-800 mb-4">Riwayat Kadar Amonia (ppm)</p>
+          <p className="text-lg font-semibold text-gray-800 mb-4">
+            Riwayat Kadar Amonia (ppm)
+          </p>
           <div className="relative h-48">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={ammoniaData}>
@@ -223,13 +299,28 @@ export default function Home() {
                     <stop offset="95%" stopColor="#FACC15" stopOpacity={0.3} />
                   </linearGradient>
                 </defs>
-
                 <XAxis dataKey="day" tick={{ fill: "#6B7280", fontSize: 12 }} tickLine={false} />
-                <YAxis tick={{ fill: "#6B7280", fontSize: 12 }} tickLine={false} width={40} label={{ value: "ppm", angle: -90, position: "insideLeft", fill: "#6B7280", fontSize: 12 }} />
-
+                <YAxis
+                  tick={{ fill: "#6B7280", fontSize: 12 }}
+                  tickLine={false}
+                  width={40}
+                  label={{
+                    value: "ppm",
+                    angle: -90,
+                    position: "insideLeft",
+                    fill: "#6B7280",
+                    fontSize: 12,
+                  }}
+                />
                 <Tooltip content={<CustomTooltip color="#CA8A04" title="Kadar" />} />
-
-                <Area type="monotone" dataKey="value" stroke="#CA8A04" strokeWidth={2} fill="url(#amoniaColor)" />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#CA8A04"
+                  strokeWidth={2}
+                  fill="url(#amoniaColor)"
+                  activeDot={{ r: 4 }}
+                />
               </AreaChart>
             </ResponsiveContainer>
           </div>
