@@ -196,7 +196,13 @@ export default function Home() {
           <p
             className={`text-xl font-bold ${fanLatest === 1 ? "text-green-700" : "text-red-600"}`}
           >
-            {fanLatest === 1 ? "Aktif" : fanLatest === 0 ? "Mati" : "-"}
+            {
+                fanLatest === 1 ? "Aktif" :
+                fanLatest === 0 ? "Mati" :
+                fanLatest === 2 ? "2 Aktif" :
+                "-"
+            }
+
           </p>
         </div>
       </div>
