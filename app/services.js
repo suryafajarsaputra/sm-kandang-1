@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 // services.js (updated)
 // Realtime Database tetap dipakai untuk live / low-latency.
 // Firestore dipakai untuk history (queriable, paginated).
@@ -184,6 +185,20 @@ export function connectToFirebase(
       fanData,
     });
   });
+=======
+// app/services.js
+// Dummy datasets + business logic + simple simulator to emulate streaming data (ESP32)
+import { insertSensorData } from "../lib/database.js"; // ← Tambahkan koneksi DB
+
+const MAX_POINTS = 24;
+
+// --- Initial dummy datasets ---
+function makeInitialLabels(count = 7) {
+  const days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
+  const labels = [];
+  for (let i = 0; i < count; i++) labels.push(days[i % days.length]);
+  return labels;
+>>>>>>> Stashed changes
 }
 
 /**
@@ -207,6 +222,7 @@ async function saveHistoricalData({ suhu, co, amonia, kelembapan, kipas_status, 
   }
 }
 
+<<<<<<< Updated upstream
 /* NOTE:
    cleanupOldHistoricalData() removed from client. Client must NOT scan & remove historical documents.
    Use Cloud Function or backend job to prune old documents in Firestore if retention needed.
@@ -220,6 +236,24 @@ export function disconnectFirebase() {
   }
 }
 
+=======
+export let temperatureData = labels.map((d, i) => ({
+  day: d + (i >= 7 ? ` ${i - 6}` : ""),
+  value: 24 + Math.round(Math.sin(i / 2) * 3) + (i % 3),
+}));
+
+export let co2Data = labels.map((d, i) => ({
+  day: d + (i >= 7 ? ` ${i - 6}` : ""),
+  value: 280 + Math.round(Math.cos(i / 3) * 40) + (i % 5) * 3,
+}));
+
+export let ammoniaData = labels.map((d, i) => ({
+  day: d + (i >= 7 ? ` ${i - 6}` : ""),
+  value: 180 + Math.round(Math.sin(i / 1.7) * 25) + (i % 4) * 5,
+}));
+
+// --- Helpers / Business logic ---
+>>>>>>> Stashed changes
 export function last(arr) {
   return Array.isArray(arr) && arr.length ? arr[arr.length - 1].value : null;
 }
@@ -280,6 +314,7 @@ export function colorForLevel(lvl) {
   return "#B91C1C";
 }
 
+<<<<<<< Updated upstream
 /**
  * Optional helper if you want to fetch history manually from Firestore
  * fetchHistory({ hoursBack, limit })
@@ -291,6 +326,75 @@ export async function fetchHistory({ hoursBack = null, limit = 500 } = {}) {
     if (hoursBack) {
       const cutoff = Date.now() - hoursBack * 60 * 60 * 1000;
       constraints.push(where("time", ">=", cutoff));
+=======
+// --- Simple simulator to mimic incoming data from ESP32 ---
+let _simInterval = null;
+let _simOptions = {};
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+export function startSimulation(onUpdate, opts = {}) {
+  const intervalMs = opts.intervalMs || 2000;
+  const maxPoints = opts.maxPoints || MAX_POINTS;
+  const jitter = opts.jitter || {
+    temp: { min: 1, max: 1.2 },
+    co2: { min: -20, max: 20 },
+    nh3: { min: -8, max: 8 },
+  };
+
+  stopSimulation();
+  _simOptions = { intervalMs, maxPoints, jitter };
+
+  _simInterval = setInterval(async () => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    const label = `${hh}:${mm}`;
+
+    const prevTemp = last(temperatureData) ?? 26;
+    const deltaT = Math.random() * (jitter.temp.max - jitter.temp.min) + jitter.temp.min;
+    let nextTemp = Math.round((prevTemp + deltaT) * 10) / 10;
+    nextTemp = clamp(nextTemp, -10, 60);
+
+    const prevCo2 = last(co2Data) ?? 300;
+    const deltaCo2 = Math.round(Math.random() * (jitter.co2.max - jitter.co2.min) + jitter.co2.min);
+    let nextCo2 = clamp(prevCo2 + deltaCo2, 0, 10000);
+
+    const prevNh3 = last(ammoniaData) ?? 200;
+    const deltaNh3 = Math.round(Math.random() * (jitter.nh3.max - jitter.nh3.min) + jitter.nh3.min);
+    let nextNh3 = clamp(prevNh3 + deltaNh3, 0, 10000);
+
+    temperatureData = [...temperatureData, { day: label, value: Number(nextTemp.toFixed(1)) }];
+    co2Data = [...co2Data, { day: label, value: Math.round(nextCo2) }];
+    ammoniaData = [...ammoniaData, { day: label, value: Math.round(nextNh3) }];
+
+    if (temperatureData.length > maxPoints) temperatureData = temperatureData.slice(-maxPoints);
+    if (co2Data.length > maxPoints) co2Data = co2Data.slice(-maxPoints);
+    if (ammoniaData.length > maxPoints) ammoniaData = ammoniaData.slice(-maxPoints);
+
+    const tempLevel = levelFor("temp", nextTemp);
+    const co2Level = levelFor("co2", nextCo2);
+    const nh3Level = levelFor("nh3", nextNh3);
+    const overall = overallLevelFromLevels(tempLevel, co2Level, nh3Level);
+
+    // 🔹 Simpan ke database
+    await insertSensorData({
+      temperature: nextTemp,
+      co2: nextCo2,
+      nh3: nextNh3,
+      overall,
+    });
+
+    if (typeof onUpdate === "function") {
+      onUpdate({
+        temperatureData: [...temperatureData],
+        co2Data: [...co2Data],
+        ammoniaData: [...ammoniaData],
+        overall,
+      });
+>>>>>>> Stashed changes
     }
     constraints.push(orderBy("time", "desc"));
     constraints.push(fsLimit(limit));

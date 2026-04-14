@@ -2,9 +2,10 @@
   "name": "sm-kandang",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write"
@@ -15,7 +16,12 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "recharts": "^3.2.1",
+<<<<<<< Updated upstream
     "ws": "^8.18.3"
+=======
+    "sqlite": "^4.2.1",
+    "sqlite3": "^5.1.7"
+>>>>>>> Stashed changes
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.0",
